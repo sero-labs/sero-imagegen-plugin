@@ -1,6 +1,6 @@
 {
   "name": "@sero-ai/plugin-imagegen",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Gemini Nano Banana image generation plugin for Sero",
   "keywords": [
     "pi-package"

@@ -11,6 +11,7 @@ import { useAppState } from '@sero-ai/app-runtime';
 import type { ImageGenState, Generation } from '../../shared/types';
 import { DEFAULT_STATE } from '../../shared/types';
 import { useImageLoader } from '../hooks/use-image-loader';
+import '../styles.css';
 
 // ── Component ────────────────────────────────────────────────────
 
