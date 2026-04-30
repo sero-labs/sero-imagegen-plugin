@@ -4,19 +4,19 @@
  * Tool: generate_image — called by the LLM agent to create images.
  * Command: /generate-image — user-invokable shortcut.
  *
- * When running inside Sero, delegates to the image agent via globalThis bridge.
- * The bridge is registered by electron/ipc/imagegen.ts on startup.
+ * The extension owns generation directly and persists results to plugin state.
  */
 
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { StringEnum } from '@mariozechner/pi-ai';
-import type { ExtensionAPI } from '@mariozechner/pi-coding-agent';
+import type { ExtensionAPI, ExtensionContext } from '@mariozechner/pi-coding-agent';
 import { Text } from '@mariozechner/pi-tui';
 import { Type } from '@sinclair/typebox';
 
-import type { ImageGenState, Generation, GenerateParams } from '../shared/types';
+import type { ImageGenState, Generation, GenerateParams, AspectRatio } from '../shared/types';
 import { DEFAULT_STATE } from '../shared/types';
+import { generateImages } from './image-generator';
 
 // ── Paths ──
 
@@ -69,6 +69,7 @@ const Params = Type.Object({
 });
 
 type ModelAlias = 'flash' | 'pro';
+
 const MODEL_MAP: Record<ModelAlias, GenerateParams['model']> = {
   flash: 'gemini-2.5-flash-image',
   pro: 'gemini-3-pro-image-preview',
@@ -85,6 +86,49 @@ export default function (pi: ExtensionAPI) {
   pi.on('session_switch', async (_event, ctx) => {
     statePath = resolveStatePath(ctx.cwd);
   });
+
+  async function generateAndPersist(
+    genParams: GenerateParams,
+    alias: ModelAlias,
+    resolvedPath: string,
+    ctx: ExtensionContext,
+  ): Promise<{ text: string; imagePaths: string[] }> {
+    const imagesDir = path.join(ctx.cwd, IMAGES_REL);
+
+    const result = await generateImages(genParams, imagesDir, ctx);
+    if (!result.images.length) {
+      return { text: `Error: ${result.error ?? 'No images generated'}`, imagePaths: [] };
+    }
+
+    const state = await readState(resolvedPath);
+    const generation: Generation = {
+      id: state.nextId,
+      prompt: genParams.prompt,
+      negativePrompt: genParams.negativePrompt,
+      model: genParams.model,
+      aspectRatio: genParams.aspectRatio,
+      images: result.images,
+      createdAt: new Date().toISOString(),
+    };
+    state.generations.unshift(generation);
+    state.nextId++;
+    await writeState(resolvedPath, state);
+
+    const imagePaths = result.images.map((image) => {
+      const relative = path.relative(ctx.cwd, image.filePath).split(path.sep).join('/');
+      return `/workspace/${relative}`;
+    });
+    const count = result.images.length;
+    const modelName = alias === 'pro' ? 'Nano Banana Pro' : 'Nano Banana';
+    return {
+      text: [
+        `Generated ${count} image${count > 1 ? 's' : ''} with ${modelName} (${genParams.aspectRatio}).`,
+        `Prompt: "${genParams.prompt}"`,
+        'Open the generated files from the image links in this tool result.',
+      ].join('\n'),
+      imagePaths,
+    };
+  }
 
   // ── Tool ──
 
@@ -110,53 +154,16 @@ export default function (pi: ExtensionAPI) {
         prompt: params.prompt,
         model: MODEL_MAP[alias] ?? 'gemini-2.5-flash-image',
         variations: params.variations ?? 1,
-        aspectRatio: (params.aspect_ratio as any) ?? '1:1',
+        aspectRatio: (params.aspect_ratio as AspectRatio | undefined) ?? '1:1',
         negativePrompt: params.negative_prompt,
       };
 
       try {
-        const imagesDir = cwd
-          ? path.join(cwd, IMAGES_REL)
-          : path.join(path.dirname(resolvedPath), 'images');
-
-        // Use Sero image agent bridge if available, otherwise error
-        const seroGen = (globalThis as any).__seroImageGen;
-        if (!seroGen) {
-          return {
-            content: [{ type: 'text', text: 'Error: Image generation requires Sero desktop app.' }],
-            details: {},
-          };
-        }
-
-        const result = await seroGen(genParams, imagesDir);
-
-        if (!result.images || result.images.length === 0) {
-          return {
-            content: [{ type: 'text', text: `Error: ${result.error ?? 'No images generated'}` }],
-            details: {},
-          };
-        }
-
-        // Update state
-        const state = await readState(statePath);
-        const generation: Generation = {
-          id: state.nextId,
-          prompt: genParams.prompt,
-          negativePrompt: genParams.negativePrompt,
-          model: genParams.model,
-          aspectRatio: genParams.aspectRatio,
-          images: result.images,
-          createdAt: new Date().toISOString(),
+        const generated = await generateAndPersist(genParams, alias, statePath, ctx);
+        return {
+          content: [{ type: 'text', text: generated.text }],
+          details: { imagePaths: generated.imagePaths },
         };
-        state.generations.unshift(generation);
-        state.nextId++;
-        await writeState(statePath, state);
-
-        const count = result.images.length;
-        const modelName = alias === 'pro' ? 'Nano Banana Pro' : 'Nano Banana';
-        const text = `Generated ${count} image${count > 1 ? 's' : ''} with ${modelName} (${genParams.aspectRatio}).\nPrompt: "${genParams.prompt}"`;
-
-        return { content: [{ type: 'text', text }], details: {} };
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         return { content: [{ type: 'text', text: `Error: ${msg}` }], details: {} };
@@ -183,21 +190,6 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
-  // ── Command ──
-
-  pi.registerCommand('generate-image', {
-    description: 'Generate an image with Gemini Nano Banana',
-    handler: async (args, _ctx) => {
-      const prompt = args.trim();
-      if (!prompt) {
-        pi.sendUserMessage(
-          'I want to generate an image. Ask me what I\'d like to create, then use the generate_image tool.',
-        );
-      } else {
-        pi.sendUserMessage(
-          `Generate an image with this prompt using the generate_image tool: "${prompt}"`,
-        );
-      }
-    },
-  });
+  // Slash shortcut lives in prompts/generate-image.md so it does not shadow the
+  // bridged generate_image tool/CLI entry.
 }
