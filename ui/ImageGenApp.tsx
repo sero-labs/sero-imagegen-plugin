@@ -10,6 +10,7 @@ import { useAppState, AppContext } from '@sero-ai/app-runtime';
 import { ScrollArea } from './components/ui/scroll-area';
 import type { ImageGenState, GenerateParams } from '../shared/types';
 import { DEFAULT_STATE } from '../shared/types';
+import { normalizeState } from '../shared/state';
 import { GenerateForm } from './components/GenerateForm';
 import { Gallery } from './components/Gallery';
 import { EmptyState } from './components/EmptyState';
@@ -26,7 +27,8 @@ function getBridge(): SeroImagegenBridge | null {
 }
 
 export function ImageGenApp() {
-  const [state] = useAppState<ImageGenState>(DEFAULT_STATE);
+  const [rawState] = useAppState<ImageGenState>(DEFAULT_STATE);
+  const state = normalizeState(rawState);
   const ctx = useContext(AppContext);
   const workspaceId = ctx?.workspaceId ?? '';
   const [generating, setGenerating] = useState(false);

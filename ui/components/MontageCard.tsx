@@ -28,9 +28,10 @@ function Skeleton() {
 }
 
 export function MontageCard({ generation, onClick, onDelete, style }: MontageCardProps) {
-  const filePaths = generation.images.map((img) => img.filePath);
+  const generationImages = generation.images ?? [];
+  const filePaths = generationImages.map((img) => img.filePath);
   const { images, loading } = useImageBatchLoader(filePaths);
-  const count = generation.images.length;
+  const count = generationImages.length;
   const isMontage = count > 1;
   const [confirmOpen, setConfirmOpen] = useState(false);
 
@@ -43,7 +44,7 @@ export function MontageCard({ generation, onClick, onDelete, style }: MontageCar
       {/* Image(s) */}
       {isMontage ? (
         <div className="grid grid-cols-2 grid-rows-2 gap-0.5 p-0.5 h-full">
-          {generation.images.slice(0, 4).map((img, i) => {
+          {generationImages.slice(0, 4).map((img, i) => {
             const uri = images.get(img.filePath);
             return (
               <div

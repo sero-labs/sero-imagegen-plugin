@@ -16,6 +16,7 @@ import { Type } from '@sinclair/typebox';
 
 import type { ImageGenState, Generation, GenerateParams, AspectRatio } from '../shared/types';
 import { DEFAULT_STATE } from '../shared/types';
+import { normalizeState } from '../shared/state';
 import { generateImages } from './image-generator';
 
 // ── Paths ──
@@ -32,7 +33,7 @@ function resolveStatePath(cwd: string): string {
 async function readState(filePath: string): Promise<ImageGenState> {
   try {
     const raw = await fs.readFile(filePath, 'utf8');
-    return JSON.parse(raw) as ImageGenState;
+    return normalizeState(JSON.parse(raw));
   } catch {
     return { ...DEFAULT_STATE };
   }

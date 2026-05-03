@@ -25,7 +25,7 @@ type BentoSize = 'large' | 'tall' | 'wide' | 'normal';
 function computeBentoSize(gen: Generation, index: number): BentoSize {
   const isWide = ['16:9', '3:2', '4:3'].includes(gen.aspectRatio);
   const isTall = ['9:16', '2:3', '3:4'].includes(gen.aspectRatio);
-  const isMulti = gen.images.length > 1;
+  const isMulti = (gen.images?.length ?? 0) > 1;
 
   // First item or every 5th is featured
   if (index === 0) return isWide ? 'wide' : 'large';
@@ -66,7 +66,7 @@ export function Gallery({ generations, onDelete }: GalleryProps) {
 
   // Clamp index if images were removed while viewer is open
   const viewerIndex = viewerGen
-    ? Math.min(viewerId!.index, viewerGen.images.length - 1)
+    ? Math.max(0, Math.min(viewerId!.index, (viewerGen.images?.length ?? 1) - 1))
     : 0;
 
   const items = useMemo(

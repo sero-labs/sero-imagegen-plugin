@@ -10,13 +10,15 @@ import { useMemo } from 'react';
 import { useAppState } from '@sero-ai/app-runtime';
 import type { ImageGenState, Generation } from '../../shared/types';
 import { DEFAULT_STATE } from '../../shared/types';
+import { normalizeState } from '../../shared/state';
 import { useImageLoader } from '../hooks/use-image-loader';
 import '../styles.css';
 
 // ── Component ────────────────────────────────────────────────────
 
 export function ImageGenWidget() {
-  const [state] = useAppState<ImageGenState>(DEFAULT_STATE);
+  const [rawState] = useAppState<ImageGenState>(DEFAULT_STATE);
+  const state = normalizeState(rawState);
 
   const recentGens = useMemo(() => {
     return [...state.generations]
@@ -25,7 +27,7 @@ export function ImageGenWidget() {
   }, [state.generations]);
 
   const totalImages = useMemo(() => {
-    return state.generations.reduce((sum, g) => sum + g.images.length, 0);
+    return state.generations.reduce((sum, g) => sum + (g.images?.length ?? 0), 0);
   }, [state.generations]);
 
   if (state.generations.length === 0) {
@@ -62,7 +64,8 @@ export function ImageGenWidget() {
 // ── Generation card ──────────────────────────────────────────────
 
 function GenCard({ generation }: { generation: Generation }) {
-  const firstImage = generation.images[0];
+  const generationImages = generation.images ?? [];
+  const firstImage = generationImages[0];
   const { dataUri, loading } = useImageLoader(firstImage?.filePath);
 
   // Build the aspect ratio for the card
@@ -96,10 +99,10 @@ function GenCard({ generation }: { generation: Generation }) {
             </span>
           </div>
           {/* Image count badge */}
-          {generation.images.length > 1 && (
+          {generationImages.length > 1 && (
             <div className="absolute right-1 top-1 rounded-full bg-black/50 px-1 py-0.5">
               <span className="text-[8px] font-bold text-white">
-                {generation.images.length}
+                {generationImages.length}
               </span>
             </div>
           )}
