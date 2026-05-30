@@ -7,7 +7,7 @@ import {
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import type { ExtensionContext } from '@mariozechner/pi-coding-agent';
+import type { ExtensionContext } from '@earendil-works/pi-coding-agent';
 
 import type { GenerateParams, GeneratedImage } from '../shared/types';
 
