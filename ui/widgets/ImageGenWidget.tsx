@@ -1,124 +1,34 @@
 /**
  * ImageGenWidget — recent generations gallery for the dashboard.
  *
- * Shows the latest generated images in a compact masonry-style grid
- * with hover overlays showing the prompt. Includes a generation
- * counter with a gradient accent.
+ * The latest generated images in a compact grid with prompt-on-hover, plus a
+ * header counting images and generations. The gallery grid is domain
+ * presentation; everything around it composes the shared @sero-ai/ui set.
  */
 
 import { useMemo } from 'react';
 import { useAppState } from '@sero-ai/app-runtime';
-import type { ImageGenState, Generation } from '../../shared/types';
+import {
+  DataBoundary,
+  EmptyState,
+  Grid,
+  Inline,
+  Stack,
+  Text,
+  WidgetContent,
+} from '@sero-ai/ui';
+import { Image as ImageIcon } from 'lucide-react';
+import type { AspectRatio, Generation, ImageGenState } from '../../shared/types';
 import { DEFAULT_STATE } from '../../shared/types';
 import { normalizeState } from '../../shared/state';
 import { useImageLoader } from '../hooks/use-image-loader';
-import '../styles.css';
+import '../widget.css';
 
-// ── Component ────────────────────────────────────────────────────
+/** How many recent generations the gallery shows. */
+const SHOWN = 6;
 
-export function ImageGenWidget() {
-  const [rawState] = useAppState<ImageGenState>(DEFAULT_STATE);
-  const state = normalizeState(rawState);
-
-  const recentGens = useMemo(() => {
-    return [...state.generations]
-      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-      .slice(0, 6);
-  }, [state.generations]);
-
-  const totalImages = useMemo(() => {
-    return state.generations.reduce((sum, g) => sum + (g.images?.length ?? 0), 0);
-  }, [state.generations]);
-
-  if (state.generations.length === 0) {
-    return <EmptyGallery />;
-  }
-
-  return (
-    <div className="flex h-full flex-col gap-2 p-3">
-      {/* ── Header ── */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <span
-            className="bg-gradient-to-r from-fuchsia-400 to-violet-400 bg-clip-text text-lg font-bold tabular-nums text-transparent"
-          >
-            {totalImages}
-          </span>
-          <span className="text-xs text-[var(--text-muted)]">images</span>
-        </div>
-        <span className="text-[10px] tabular-nums text-[var(--text-muted)]">
-          {state.generations.length} generations
-        </span>
-      </div>
-
-      {/* ── Gallery grid ── */}
-      <div className="grid min-h-0 flex-1 grid-cols-3 gap-1 overflow-hidden">
-        {recentGens.map((gen) => (
-          <GenCard key={gen.id} generation={gen} />
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// ── Generation card ──────────────────────────────────────────────
-
-function GenCard({ generation }: { generation: Generation }) {
-  const generationImages = generation.images ?? [];
-  const firstImage = generationImages[0];
-  const { dataUri, loading } = useImageLoader(firstImage?.filePath);
-
-  // Build the aspect ratio for the card
-  const aspectClass = getAspectClass(generation.aspectRatio);
-
-  return (
-    <div
-      className={`group relative overflow-hidden rounded-md bg-[var(--bg-elevated)] ${aspectClass}`}
-    >
-      {firstImage ? (
-        <div className="absolute inset-0">
-          {dataUri ? (
-            <img
-              src={dataUri}
-              alt={generation.prompt}
-              className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
-            />
-          ) : (
-            <div
-              className="absolute inset-0 bg-gradient-to-br from-fuchsia-500/20 via-violet-500/15 to-cyan-500/20"
-            />
-          )}
-          <div className="absolute inset-0 bg-gradient-to-br from-black/0 via-transparent to-black/10" />
-          {loading && !dataUri && (
-            <div className="absolute inset-0 animate-pulse bg-white/5" />
-          )}
-          {/* Prompt overlay on hover */}
-          <div className="absolute inset-0 flex items-end bg-gradient-to-t from-black/70 to-transparent p-1.5 opacity-0 transition-opacity duration-200 group-hover:opacity-100">
-            <span className="line-clamp-2 text-[9px] leading-tight text-white">
-              {generation.prompt}
-            </span>
-          </div>
-          {/* Image count badge */}
-          {generationImages.length > 1 && (
-            <div className="absolute right-1 top-1 rounded-full bg-black/50 px-1 py-0.5">
-              <span className="text-[8px] font-bold text-white">
-                {generationImages.length}
-              </span>
-            </div>
-          )}
-        </div>
-      ) : (
-        <div className="flex h-full items-center justify-center">
-          <span className="text-[9px] text-[var(--text-muted)]">No image</span>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ── Aspect ratio mapping ─────────────────────────────────────────
-
-function getAspectClass(ratio: string): string {
+/** Aspect-ratio class for a generation card. */
+function aspectClass(ratio: AspectRatio): string {
   switch (ratio) {
     case '16:9': return 'aspect-video';
     case '9:16': return 'aspect-[9/16]';
@@ -130,39 +40,80 @@ function getAspectClass(ratio: string): string {
   }
 }
 
-// ── Empty state ──────────────────────────────────────────────────
+export function ImageGenWidget() {
+  const [rawState] = useAppState<ImageGenState>(DEFAULT_STATE);
+  const state = normalizeState(rawState);
 
-function EmptyGallery() {
+  const recent = useMemo(
+    () =>
+      [...state.generations]
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+        .slice(0, SHOWN),
+    [state.generations],
+  );
+  const totalImages = useMemo(
+    () => state.generations.reduce((sum, g) => sum + (g.images?.length ?? 0), 0),
+    [state.generations],
+  );
+
   return (
-    <div className="flex h-full flex-col items-center justify-center gap-3 p-3">
-      {/* Animated gradient orb */}
-      <div className="relative size-14">
-        <div
-          className="absolute inset-0 rounded-2xl bg-gradient-to-br from-fuchsia-500/25 via-violet-500/20 to-cyan-500/25"
-          style={{
-            animation: 'pulse 3s ease-in-out infinite',
-          }}
-        />
-        <div
-          className="absolute inset-2 rounded-xl bg-gradient-to-tr from-fuchsia-400/15 to-violet-400/15"
-          style={{
-            animation: 'pulse 3s ease-in-out 0.5s infinite',
-          }}
-        />
-        {/* Image icon */}
-        <svg
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.5"
-          className="absolute inset-0 m-auto size-6 text-[var(--text-muted)]"
+    <WidgetContent>
+      <Stack gap="sm" fill>
+        <Inline justify="between" align="end">
+          <Inline gap="xs" align="end">
+            <Text variant="numeric">{totalImages}</Text>
+            <Text variant="muted">images</Text>
+          </Inline>
+          <Text variant="supporting">{state.generations.length} generations</Text>
+        </Inline>
+
+        <DataBoundary
+          state={state.generations.length === 0 ? 'empty' : 'ready'}
+          empty={<EmptyState icon={ImageIcon} title="No images yet" />}
         >
-          <rect x="3" y="3" width="18" height="18" rx="2" />
-          <circle cx="8.5" cy="8.5" r="1.5" />
-          <path d="m21 15-5-5L5 21" />
-        </svg>
+          <Stack gap="none" scroll>
+            <Grid columns={3} gap="xs">
+              {recent.map((gen) => (
+                <GenCard key={gen.id} generation={gen} />
+              ))}
+            </Grid>
+          </Stack>
+        </DataBoundary>
+      </Stack>
+    </WidgetContent>
+  );
+}
+
+function GenCard({ generation }: { generation: Generation }) {
+  const images = generation.images ?? [];
+  const first = images[0];
+  const { dataUri, loading } = useImageLoader(first?.filePath);
+
+  return (
+    <div
+      className={`group relative overflow-hidden rounded-md bg-[var(--surface-flat)] ${aspectClass(generation.aspectRatio)}`}
+    >
+      {dataUri ? (
+        <img
+          src={dataUri}
+          alt={generation.prompt}
+          className="absolute inset-0 h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+        />
+      ) : (
+        <div className={`absolute inset-0 bg-[var(--surface-line)] ${loading ? 'animate-pulse' : ''}`} />
+      )}
+
+      {/* Prompt on hover */}
+      <div className="absolute inset-0 flex items-end bg-gradient-to-t from-black/70 to-transparent p-1.5 opacity-0 transition-opacity duration-200 group-hover:opacity-100">
+        <span className="line-clamp-2 text-[9px] leading-tight text-white">{generation.prompt}</span>
       </div>
-      <span className="text-xs text-[var(--text-muted)]">No images generated</span>
+
+      {/* Multi-image badge */}
+      {images.length > 1 && (
+        <div className="absolute right-1 top-1 rounded-full bg-black/50 px-1 py-0.5">
+          <span className="text-[8px] font-bold text-white">{images.length}</span>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,0 +1,9 @@
+/*
+ * Stylesheet for the Gallery dashboard widget. Kept separate from the full
+ * app's styles.css: the widget composes the shared @sero-ai/ui dashboard set,
+ * so it pulls in that plugin stylesheet (tokens + glass surfaces) and scans the
+ * widget sources for the Tailwind utilities the components emit.
+ */
+@import "@sero-ai/ui/styles/plugin.css";
+
+@source "./**/*.{ts,tsx}";
