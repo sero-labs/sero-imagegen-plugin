@@ -87,7 +87,7 @@ export function ImageGenWidget() {
 function GenCard({ generation }: { generation: Generation }) {
   const images = generation.images ?? [];
   const first = images[0];
-  const { dataUri, loading } = useImageLoader(first?.filePath);
+  const { dataUri, loading } = useImageLoader(first);
 
   return (
     <div

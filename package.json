@@ -56,6 +56,13 @@
         "gemini"
       ],
       "minSeroVersion": "0.1.0",
+      "requiredHostCapabilities": [
+        "appAgent.invokeTool",
+        "tool.cli"
+      ],
+      "bridgeTools": [
+        "generate_image"
+      ],
       "preBuilt": false
     }
   },

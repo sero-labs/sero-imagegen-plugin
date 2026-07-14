@@ -1,33 +1,42 @@
 /**
- * Lazy image loader — reads image files via IPC and caches data URIs in memory.
+ * Lazy image loader — reads plugin-owned images through the generic app-tool bridge.
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { useAppTools, type AppToolResult } from '@sero-ai/app-runtime';
 
-interface SeroImagegenBridge {
-  readImage(filePath: string): Promise<string>;
-}
-
-function getBridge(): SeroImagegenBridge | null {
-  return (window as any).sero?.imagegen ?? null;
-}
+import type { GeneratedImage } from '../../shared/types';
 
 const imageCache = new Map<string, string>();
 
-/** Load a single image by file path, returning a data URI. */
-export function useImageLoader(filePath: string | undefined): {
+function imageDataUri(result: AppToolResult): string {
+  const image = result.content.find((block) => block.type === 'image');
+  if (!image || image.type !== 'image') {
+    throw new Error(result.text || 'Image data unavailable');
+  }
+  return `data:${image.mimeType};base64,${image.data}`;
+}
+
+/** Load a single generated image, returning a data URI. */
+export function useImageLoader(image: GeneratedImage | undefined): {
   dataUri: string | null;
   loading: boolean;
 } {
+  const { run } = useAppTools();
+  const imageId = image?.id;
   const [dataUri, setDataUri] = useState<string | null>(
-    filePath ? imageCache.get(filePath) ?? null : null,
+    imageId ? imageCache.get(imageId) ?? null : null,
   );
-  const [loading, setLoading] = useState(!dataUri && !!filePath);
+  const [loading, setLoading] = useState(!dataUri && !!imageId);
 
   useEffect(() => {
-    if (!filePath) return;
+    if (!imageId) {
+      setDataUri(null);
+      setLoading(false);
+      return;
+    }
 
-    const cached = imageCache.get(filePath);
+    const cached = imageCache.get(imageId);
     if (cached) {
       setDataUri(cached);
       setLoading(false);
@@ -35,17 +44,14 @@ export function useImageLoader(filePath: string | undefined): {
     }
 
     let cancelled = false;
+    setDataUri(null);
     setLoading(true);
 
-    const bridge = getBridge();
-    if (!bridge) {
-      setLoading(false);
-      return;
-    }
-
-    bridge.readImage(filePath).then((uri) => {
+    run('imagegen_gallery', { action: 'read', image_id: imageId }).then((result) => {
+      if (result.isError) throw new Error(result.text);
+      const uri = imageDataUri(result);
       if (cancelled) return;
-      imageCache.set(filePath, uri);
+      imageCache.set(imageId, uri);
       setDataUri(uri);
       setLoading(false);
     }).catch(() => {
@@ -53,35 +59,38 @@ export function useImageLoader(filePath: string | undefined): {
     });
 
     return () => { cancelled = true; };
-  }, [filePath]);
+  }, [imageId, run]);
 
   return { dataUri, loading };
 }
 
-/** Batch-load multiple images. Returns a map of filePath → dataUri. */
-export function useImageBatchLoader(filePaths: string[]): {
+/** Batch-load multiple images. Returns a map of image ID → data URI. */
+export function useImageBatchLoader(sourceImages: GeneratedImage[]): {
   images: Map<string, string>;
   loading: boolean;
 } {
+  const { run } = useAppTools();
   const [images, setImages] = useState<Map<string, string>>(() => {
     const initial = new Map<string, string>();
-    for (const fp of filePaths) {
-      const cached = imageCache.get(fp);
-      if (cached) initial.set(fp, cached);
+    for (const image of sourceImages) {
+      const cached = imageCache.get(image.id);
+      if (cached) initial.set(image.id, cached);
     }
     return initial;
   });
   const [loading, setLoading] = useState(false);
   const keyRef = useRef('');
 
-  const load = useCallback(async (paths: string[]) => {
-    const bridge = getBridge();
-    if (!bridge || paths.length === 0) return;
+  const load = useCallback(async (requestedImages: GeneratedImage[]) => {
+    if (requestedImages.length === 0) return;
 
-    const missing = paths.filter((p) => !imageCache.has(p));
+    const missing = requestedImages.filter((image) => !imageCache.has(image.id));
     if (missing.length === 0) {
       const result = new Map<string, string>();
-      for (const p of paths) result.set(p, imageCache.get(p)!);
+      for (const image of requestedImages) {
+        const cached = imageCache.get(image.id);
+        if (cached) result.set(image.id, cached);
+      }
       setImages(result);
       return;
     }
@@ -89,17 +98,19 @@ export function useImageBatchLoader(filePaths: string[]): {
     setLoading(true);
 
     const results = await Promise.allSettled(
-      missing.map(async (fp) => {
-        const uri = await bridge.readImage(fp);
-        imageCache.set(fp, uri);
-        return [fp, uri] as const;
+      missing.map(async (image) => {
+        const result = await run('imagegen_gallery', { action: 'read', image_id: image.id });
+        if (result.isError) throw new Error(result.text);
+        const uri = imageDataUri(result);
+        imageCache.set(image.id, uri);
+        return [image.id, uri] as const;
       }),
     );
 
     const newMap = new Map<string, string>();
-    for (const p of paths) {
-      const cached = imageCache.get(p);
-      if (cached) newMap.set(p, cached);
+    for (const image of requestedImages) {
+      const cached = imageCache.get(image.id);
+      if (cached) newMap.set(image.id, cached);
     }
     for (const r of results) {
       if (r.status === 'fulfilled') {
@@ -109,14 +120,14 @@ export function useImageBatchLoader(filePaths: string[]): {
 
     setImages(newMap);
     setLoading(false);
-  }, []);
+  }, [run]);
 
   useEffect(() => {
-    const key = filePaths.join('|');
+    const key = sourceImages.map((image) => image.id).join('|');
     if (key === keyRef.current) return;
     keyRef.current = key;
-    load(filePaths);
-  }, [filePaths, load]);
+    void load(sourceImages);
+  }, [sourceImages, load]);
 
   return { images, loading };
 }
