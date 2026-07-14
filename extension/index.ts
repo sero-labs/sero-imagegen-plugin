@@ -7,47 +7,30 @@
  * The extension owns generation directly and persists results to plugin state.
  */
 
-import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { StringEnum } from '@earendil-works/pi-ai';
 import type { ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-agent';
 import { Text } from '@earendil-works/pi-tui';
 import { Type } from 'typebox';
 
-import type { ImageGenState, Generation, GenerateParams, AspectRatio } from '../shared/types';
-import { DEFAULT_STATE } from '../shared/types';
-import { normalizeState } from '../shared/state';
+import type { Generation, GenerateParams, AspectRatio } from '../shared/types';
+import { deleteGalleryImage, readGalleryImage } from './gallery';
 import { generateImages } from './image-generator';
-
-// ── Paths ──
-
-const STATE_REL = path.join('.sero', 'apps', 'imagegen', 'state.json');
-const IMAGES_REL = path.join('.sero', 'apps', 'imagegen', 'images');
-
-function resolveStatePath(cwd: string): string {
-  return path.join(cwd, STATE_REL);
-}
-
-// ── State I/O ──
-
-async function readState(filePath: string): Promise<ImageGenState> {
-  try {
-    const raw = await fs.readFile(filePath, 'utf8');
-    return normalizeState(JSON.parse(raw));
-  } catch {
-    return { ...DEFAULT_STATE };
-  }
-}
-
-async function writeState(filePath: string, state: ImageGenState): Promise<void> {
-  const dir = path.dirname(filePath);
-  await fs.mkdir(dir, { recursive: true });
-  const tmp = `${filePath}.tmp.${Date.now()}`;
-  await fs.writeFile(tmp, JSON.stringify(state, null, 2), 'utf8');
-  await fs.rename(tmp, filePath);
-}
+import {
+  readState,
+  resolveImagesDir,
+  resolveStatePath,
+  writeState,
+} from './state-store';
 
 // ── Tool parameters ──
+
+const AttachmentParams = Type.Object({
+  id: Type.String(),
+  data_uri: Type.String(),
+  mime_type: Type.String(),
+  filename: Type.String(),
+});
 
 const Params = Type.Object({
   prompt: Type.String({ description: 'Text description of the image to generate' }),
@@ -67,6 +50,18 @@ const Params = Type.Object({
   negative_prompt: Type.Optional(
     Type.String({ description: 'What to avoid in the image' }),
   ),
+  attachments: Type.Optional(
+    Type.Array(AttachmentParams, {
+      description: 'Reference images for editing or remixing',
+      maxItems: 4,
+    }),
+  ),
+});
+
+const GalleryParams = Type.Object({
+  action: StringEnum(['read', 'delete'] as const),
+  image_id: Type.Optional(Type.String()),
+  generation_id: Type.Optional(Type.Number()),
 });
 
 type ModelAlias = 'flash' | 'pro';
@@ -94,7 +89,7 @@ export default function (pi: ExtensionAPI) {
     resolvedPath: string,
     ctx: ExtensionContext,
   ): Promise<{ text: string; imagePaths: string[] }> {
-    const imagesDir = path.join(ctx.cwd, IMAGES_REL);
+    const imagesDir = resolveImagesDir(ctx.cwd);
 
     const result = await generateImages(genParams, imagesDir, ctx);
     if (!result.images.length) {
@@ -157,6 +152,12 @@ export default function (pi: ExtensionAPI) {
         variations: params.variations ?? 1,
         aspectRatio: (params.aspect_ratio as AspectRatio | undefined) ?? '1:1',
         negativePrompt: params.negative_prompt,
+        attachments: params.attachments?.map((attachment) => ({
+          id: attachment.id,
+          dataUri: attachment.data_uri,
+          mimeType: attachment.mime_type,
+          filename: attachment.filename,
+        })),
       };
 
       try {
@@ -188,6 +189,40 @@ export default function (pi: ExtensionAPI) {
           : theme.fg('success', '🎨 ') + theme.fg('muted', text),
         0, 0,
       );
+    },
+  });
+
+  pi.registerTool({
+    name: 'imagegen_gallery',
+    label: 'ImageGen Gallery',
+    description: 'Read or delete images managed by the ImageGen gallery.',
+    parameters: GalleryParams,
+
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      try {
+        if (params.action === 'read') {
+          if (!params.image_id) {
+            return { content: [{ type: 'text', text: 'Error: image_id is required' }], details: {} };
+          }
+          const image = await readGalleryImage(ctx.cwd, params.image_id);
+          return {
+            content: [{ type: 'image', data: image.data, mimeType: image.mimeType }],
+            details: { imageId: params.image_id },
+          };
+        }
+
+        if (params.generation_id === undefined) {
+          return { content: [{ type: 'text', text: 'Error: generation_id is required' }], details: {} };
+        }
+        await deleteGalleryImage(ctx.cwd, params.generation_id, params.image_id);
+        return {
+          content: [{ type: 'text', text: 'Deleted generated image.' }],
+          details: { generationId: params.generation_id, imageId: params.image_id },
+        };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return { content: [{ type: 'text', text: `Error: ${message}` }], details: {} };
+      }
     },
   });
 

@@ -2,11 +2,11 @@
  * ImageGenApp — Sero app for Gemini Nano Banana image generation.
  *
  * Top: generation form. Below: bento gallery of generated images.
- * Supports direct generation (via IPC) and agent-mediated (via chat).
+ * Uses plugin-owned tools for generation and gallery management.
  */
 
-import { useState, useCallback, useRef, useEffect, useContext } from 'react';
-import { useAppState, AppContext } from '@sero-ai/app-runtime';
+import { useState, useCallback, useRef, useEffect } from 'react';
+import { useAppState, useAppTools } from '@sero-ai/app-runtime';
 import { ScrollArea } from './components/ui/scroll-area';
 import type { ImageGenState, GenerateParams } from '../shared/types';
 import { DEFAULT_STATE } from '../shared/types';
@@ -16,21 +16,14 @@ import { Gallery } from './components/Gallery';
 import { EmptyState } from './components/EmptyState';
 import './styles.css';
 
-interface SeroImagegenBridge {
-  generate(workspaceId: string, params: any): Promise<{ generation: any; error?: string }>;
-  readImage(filePath: string): Promise<string>;
-  deleteImage(workspaceId: string, generationId: number, singleImageId?: string): Promise<{ ok: boolean; error?: string }>;
-}
-
-function getBridge(): SeroImagegenBridge | null {
-  return (window as any).sero?.imagegen ?? null;
+function toolErrorMessage(text: string, fallback: string): string {
+  return text.replace(/^Error:\s*/, '').trim() || fallback;
 }
 
 export function ImageGenApp() {
   const [rawState] = useAppState<ImageGenState>(DEFAULT_STATE);
   const state = normalizeState(rawState);
-  const ctx = useContext(AppContext);
-  const workspaceId = ctx?.workspaceId ?? '';
+  const { run } = useAppTools();
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -41,23 +34,25 @@ export function ImageGenApp() {
 
   const handleGenerate = useCallback(
     async (params: GenerateParams) => {
-      const bridge = getBridge();
-      if (!bridge) {
-        setError('Image generation bridge not available');
-        return;
-      }
-      if (!workspaceId) {
-        setError('No workspace selected');
-        return;
-      }
-
       setGenerating(true);
       setError(null);
 
       try {
-        const result = await bridge.generate(workspaceId, params);
-        if (result.error && !result.generation) {
-          setError(result.error);
+        const result = await run('generate_image', {
+          prompt: params.prompt,
+          model: params.model === 'gemini-3-pro-image-preview' ? 'pro' : 'flash',
+          variations: params.variations,
+          aspect_ratio: params.aspectRatio,
+          negative_prompt: params.negativePrompt,
+          attachments: params.attachments?.map((attachment) => ({
+            id: attachment.id,
+            data_uri: attachment.dataUri,
+            mime_type: attachment.mimeType,
+            filename: attachment.filename,
+          })),
+        });
+        if (result.isError) {
+          setError(toolErrorMessage(result.text, 'Generation failed'));
         }
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Generation failed');
@@ -65,20 +60,25 @@ export function ImageGenApp() {
         setGenerating(false);
       }
     },
-    [workspaceId],
+    [run],
   );
 
   const handleDelete = useCallback(
     async (generationId: number, singleImageId?: string) => {
-      const bridge = getBridge();
-      if (!bridge || !workspaceId) return;
       try {
-        await bridge.deleteImage(workspaceId, generationId, singleImageId);
+        const result = await run('imagegen_gallery', {
+          action: 'delete',
+          generation_id: generationId,
+          image_id: singleImageId,
+        });
+        if (result.isError) {
+          setError(toolErrorMessage(result.text, 'Delete failed'));
+        }
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Delete failed');
       }
     },
-    [workspaceId],
+    [run],
   );
 
   const hasGenerations = state.generations.length > 0;

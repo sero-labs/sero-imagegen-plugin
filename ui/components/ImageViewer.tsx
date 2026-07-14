@@ -33,7 +33,7 @@ export function ImageViewer({ generation, initialIndex, onDelete, onClose }: Ima
   if (clampedIndex !== index) setIndex(clampedIndex);
 
   const image = generation.images[clampedIndex];
-  const { dataUri, loading } = useImageLoader(image?.filePath);
+  const { dataUri, loading } = useImageLoader(image);
   const total = generation.images.length;
 
   const close = useCallback(() => {
