@@ -16,6 +16,7 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { federation } from '@module-federation/vite';
 import tailwindcss from '@tailwindcss/vite';
+import { seroPluginCssScope } from '@sero-ai/plugin-vite';
 
 export default defineConfig({
   // Keep Vite's root at the package root: @module-federation/vite writes physical
@@ -25,6 +26,7 @@ export default defineConfig({
   plugins: [
     react(),
     tailwindcss(),
+    seroPluginCssScope({ pluginId: 'imagegen', allowGlobalSelectors: true }),
     federation({
       name: 'sero_imagegen',
       filename: 'remoteEntry.js',
