@@ -18,7 +18,9 @@ export interface ImageGenerationResult {
 
 const GOOGLE_PROVIDER_IDS = ['google', 'google-gemini-cli', 'google-vertex'] as const;
 
-async function resolveGoogleApiKey(ctx: ExtensionContext): Promise<string> {
+export async function resolveGoogleApiKey(
+  ctx: Pick<ExtensionContext, 'modelRegistry'>,
+): Promise<string> {
   const envKey = process.env.GEMINI_API_KEY?.trim();
   if (envKey) return envKey;
 
