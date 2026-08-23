@@ -1,6 +1,8 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 
+import { withStateLock } from '@sero-ai/extension-runtime';
+
 import type { GeneratedImage } from '../shared/types';
 import {
   readState,
@@ -40,24 +42,28 @@ export async function deleteGalleryImage(
   imageId?: string,
 ): Promise<void> {
   const statePath = resolveStatePath(cwd);
-  const state = await readState(statePath);
-  const generationIndex = state.generations.findIndex((generation) => generation.id === generationId);
-  if (generationIndex === -1) throw new Error('Image not found');
+  // The whole read -> delete files -> write transaction holds the shared state
+  // lock the Sero host also takes, so a concurrent UI write survives (sero#428).
+  await withStateLock(statePath, async () => {
+    const state = await readState(statePath);
+    const generationIndex = state.generations.findIndex((generation) => generation.id === generationId);
+    if (generationIndex === -1) throw new Error('Image not found');
 
-  const generation = state.generations[generationIndex];
-  const images = imageId
-    ? generation.images.filter((image) => image.id === imageId)
-    : generation.images;
-  if (images.length === 0) throw new Error('Image not found');
+    const generation = state.generations[generationIndex];
+    const images = imageId
+      ? generation.images.filter((image) => image.id === imageId)
+      : generation.images;
+    if (images.length === 0) throw new Error('Image not found');
 
-  await Promise.all(images.map((image) => fs.rm(resolveManagedImagePath(cwd, image), { force: true })));
+    await Promise.all(images.map((image) => fs.rm(resolveManagedImagePath(cwd, image), { force: true })));
 
-  if (imageId) {
-    generation.images = generation.images.filter((image) => image.id !== imageId);
-    if (generation.images.length === 0) state.generations.splice(generationIndex, 1);
-  } else {
-    state.generations.splice(generationIndex, 1);
-  }
+    if (imageId) {
+      generation.images = generation.images.filter((image) => image.id !== imageId);
+      if (generation.images.length === 0) state.generations.splice(generationIndex, 1);
+    } else {
+      state.generations.splice(generationIndex, 1);
+    }
 
-  await writeState(statePath, state);
+    await writeState(statePath, state);
+  });
 }

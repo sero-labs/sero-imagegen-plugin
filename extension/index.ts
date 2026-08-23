@@ -17,10 +17,9 @@ import type { Generation, GenerateParams, AspectRatio } from '../shared/types';
 import { deleteGalleryImage, readGalleryImage } from './gallery';
 import { generateImages } from './image-generator';
 import {
-  readState,
   resolveImagesDir,
   resolveStatePath,
-  writeState,
+  updateState,
 } from './state-store';
 
 // ── Tool parameters ──
@@ -96,19 +95,21 @@ export default function (pi: ExtensionAPI) {
       return { text: `Error: ${result.error ?? 'No images generated'}`, imagePaths: [] };
     }
 
-    const state = await readState(resolvedPath);
-    const generation: Generation = {
-      id: state.nextId,
-      prompt: genParams.prompt,
-      negativePrompt: genParams.negativePrompt,
-      model: genParams.model,
-      aspectRatio: genParams.aspectRatio,
-      images: result.images,
-      createdAt: new Date().toISOString(),
-    };
-    state.generations.unshift(generation);
-    state.nextId++;
-    await writeState(resolvedPath, state);
+    // Persist under the shared state lock; generation ran outside it (sero#428).
+    await updateState(resolvedPath, (state) => {
+      const generation: Generation = {
+        id: state.nextId,
+        prompt: genParams.prompt,
+        negativePrompt: genParams.negativePrompt,
+        model: genParams.model,
+        aspectRatio: genParams.aspectRatio,
+        images: result.images,
+        createdAt: new Date().toISOString(),
+      };
+      state.generations.unshift(generation);
+      state.nextId++;
+      return state;
+    });
 
     const imagePaths = result.images.map((image) => {
       const relative = path.relative(ctx.cwd, image.filePath).split(path.sep).join('/');

@@ -2,6 +2,8 @@ import crypto from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 
+import { withStateLock } from '@sero-ai/extension-runtime';
+
 import { normalizeState } from '../shared/state';
 import type { ImageGenState } from '../shared/types';
 import { DEFAULT_STATE } from '../shared/types';
@@ -31,4 +33,21 @@ export async function writeState(filePath: string, state: ImageGenState): Promis
   const tmp = `${filePath}.tmp.${crypto.randomUUID()}`;
   await fs.writeFile(tmp, JSON.stringify(state, null, 2), 'utf8');
   await fs.rename(tmp, filePath);
+}
+
+/**
+ * Locked read-modify-write for state.json. The Sero host writes this file for
+ * the UI under the same `<stateFile>.lock` mutex, so a tool write cannot
+ * interleave with a panel edit and clobber it (sero#428). Keep generation and
+ * other slow work outside the updater — the lock is held for milliseconds.
+ */
+export async function updateState(
+  filePath: string,
+  updater: (current: ImageGenState) => ImageGenState,
+): Promise<ImageGenState> {
+  return withStateLock(filePath, async () => {
+    const next = updater(await readState(filePath));
+    await writeState(filePath, next);
+    return next;
+  });
 }
