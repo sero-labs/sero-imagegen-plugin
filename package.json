@@ -109,5 +109,8 @@
     "@earendil-works/pi-coding-agent": "0.83.0",
     "@earendil-works/pi-tui": "0.83.0",
     "vitest": "^4.1.10"
+  },
+  "overrides": {
+    "@sero-ai/common": "^0.11.0"
   }
 }
