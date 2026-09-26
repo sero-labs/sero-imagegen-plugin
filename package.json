@@ -87,7 +87,7 @@
     "zod": ">=4.0.0"
   },
   "devDependencies": {
-    "@module-federation/vite": "1.19.1",
+    "@module-federation/vite": "1.21.6",
     "@sero-ai/app-runtime": "^0.4.1",
     "@sero-ai/plugin-vite": "^0.1.0",
     "@sero-ai/ui": "^0.4.2",
